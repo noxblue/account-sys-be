@@ -22,7 +22,12 @@ app.use(express.static(path.join(__dirname, "public")));
 
 // setting cors
 var getAllowedOrigins = () => {
-  const origins = ["localhost:5173", "127.0.0.1:5173", "10.102.251.37:5173"];
+  const origins = [
+    "localhost:5173",
+    "127.0.0.1:5173",
+    "10.102.251.37:5173",
+    "noxblue-vite-loginsystem.netlify.app",
+  ];
   const httpProtocol = devMode ? "http://" : "https://";
   return origins.map((origin) => `${httpProtocol}${origin}`);
 };
