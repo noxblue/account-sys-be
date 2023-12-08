@@ -3,15 +3,13 @@ var express = require("express");
 var path = require("path");
 var cookieParser = require("cookie-parser");
 var logger = require("morgan");
+var cors = require("cors");
 
 var indexRouter = require("./routes/index");
 var userRouter = require("./routes/user");
 
 var app = express();
-
-// view engine setup
-// app.set('views', path.join(__dirname, 'views'));
-// app.set('view engine', 'jade');
+var devMode = app.get("env") === "development";
 
 app.use(logger("dev"));
 app.use(express.json());
@@ -19,6 +17,34 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, "public")));
 
+// setting cors
+var getAllowedOrigins = () => {
+  const origins = ["localhost:5173", "127.0.0.1:5173", "10.102.251.37:5173"];
+  const httpProtocol = devMode ? "http://" : "https://";
+  return origins.map((origin) => `${httpProtocol}${origin}`);
+};
+var allowedOrigins = getAllowedOrigins();
+var corsOptions = {
+  origin: function (origin, callback) {
+    if (allowedOrigins.indexOf(origin) === -1) {
+      callback(new Error("Not allowed by CORS"));
+    } else {
+      callback(null, true);
+    }
+  },
+  methods: ["GET", "POST", "OPTIONS", "PUT", "PATCH", "DELETE"],
+  allowedHeaders: [
+    "Origin",
+    "X-Requested-With",
+    "Content-Type",
+    "Accept",
+    "Authorization",
+  ],
+  credentials: true,
+};
+app.use(cors(corsOptions));
+
+// use routers
 app.use("/", indexRouter);
 app.use("/user", userRouter);
 
@@ -32,10 +58,7 @@ app.use(function (err, req, res, next) {
   // set locals, only providing error in development
   res.locals.message = err.message;
   res.locals.error = req.app.get("env") === "development" ? err : {};
-
-  // render the error page
   res.status(err.status || 500);
-  res.render("error");
 });
 
 module.exports = app;
