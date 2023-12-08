@@ -4,12 +4,15 @@ var path = require("path");
 var cookieParser = require("cookie-parser");
 var logger = require("morgan");
 var cors = require("cors");
+var session = require("express-session");
+require("dotenv").config();
 
 var indexRouter = require("./routes/index");
 var userRouter = require("./routes/user");
 
 var app = express();
 var devMode = app.get("env") === "development";
+var sessionSecret = process.env.SESSION_SECRET;
 
 app.use(logger("dev"));
 app.use(express.json());
@@ -43,6 +46,24 @@ var corsOptions = {
   credentials: true,
 };
 app.use(cors(corsOptions));
+
+// setting session
+var sessionConfig = {
+  name: "ssid",
+  secret: sessionSecret,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    sameSite: devMode ? false : "none",
+    secure: !devMode,
+    httpOnly: !devMode,
+    maxAge: 1000 * 60 * 10,
+  },
+};
+if (!devMode) {
+  app.set("trust proxy", 1); // trust first proxy
+}
+app.use(session(sessionConfig));
 
 // use routers
 app.use("/", indexRouter);
