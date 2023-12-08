@@ -29,7 +29,7 @@ var getAllowedOrigins = () => {
 var allowedOrigins = getAllowedOrigins();
 var corsOptions = {
   origin: function (origin, callback) {
-    if (allowedOrigins.indexOf(origin) === -1) {
+    if (origin && allowedOrigins.indexOf(origin) === -1) {
       callback(new Error("Not allowed by CORS"));
     } else {
       callback(null, true);
