@@ -3,27 +3,14 @@ var router = express.Router();
 var jwt = require("jsonwebtoken");
 var bcrypt = require("bcrypt");
 var { v4: uuidv4 } = require("uuid");
+var { pdbCreateUser, pdbGetUser, pdbUpdateUser } = require("../db/pdb");
 require("dotenv").config();
 
 var jwtLoginSecret = process.env.LOGIN_JWT_SECRET;
 var jwtRegisterSecret = process.env.REGIST_JWT_SECRET;
 
-var accounts = [
-  {
-    id: "368af3d3-45fb-11ed-9707-0242ac130002",
-    email: "test@gmail.cc",
-    password: "12345678",
-  },
-];
-var users = [
-  {
-    id: "368af3d3-45fb-11ed-9707-0242ac130002",
-    email: "test@gmail.cc",
-  },
-];
-
 // 登入
-router.post("/login", function (req, res, next) {
+router.post("/login", async function (req, res, next) {
   // 從req取得帳號密碼
   // 使用帳號向資料庫取得資料，資料為空返回401
   // 將密碼與資料中hashed密碼比對，比對不符，返回401
@@ -36,20 +23,20 @@ router.post("/login", function (req, res, next) {
     data: {},
   };
   const { email, password } = req.body;
-  const account = accounts.find((acc) => acc.email === email);
-  if (!account) {
+  const user = await pdbGetUser({ email });
+  if (!user) {
     resJson.statusCode = "401";
     resJson.message = "用戶不存在";
     return res.status(401).json(resJson);
   }
-  if (!bcrypt.compare(password, account.password)) {
+  if (!bcrypt.compare(password, user.password)) {
     resJson.statusCode = "401";
     resJson.message = "登入錯誤";
     return res.status(401).json(resJson);
   }
   const userData = {
-    id: account.id,
-    email: account.email,
+    id: user.uid,
+    email: user.email,
   };
   const tokenPayload = {
     ...userData,
@@ -87,7 +74,7 @@ router.post("/signup", async function (req, res, next) {
     data: {},
   };
   const { email, password } = req.body;
-  const isExist = accounts.findIndex((acc) => acc.email === email) > -1;
+  const isExist = await pdbGetUser({ email });
   if (isExist) {
     resJson.statusCode = "401";
     resJson.message = "帳號已存在";
@@ -118,7 +105,7 @@ router.post("/signup", async function (req, res, next) {
 });
 
 // 驗證註冊
-router.patch("/verify", function (req, res, next) {
+router.patch("/verify", async function (req, res, next) {
   // JWT解析失敗返回401
   // JWT解析成功，時間過期，返回401
   // code 與 JWT內不符返回401
@@ -138,7 +125,7 @@ router.patch("/verify", function (req, res, next) {
     resJson.message = "ERROR";
     return res.status(401).json(resJson);
   }
-  jwt.verify(verifyKey, jwtRegisterSecret, (err, registData) => {
+  jwt.verify(verifyKey, jwtRegisterSecret, async (err, registData) => {
     if (err) {
       resJson.statusCode = "401";
       resJson.message = "ERROR";
@@ -161,6 +148,16 @@ router.patch("/verify", function (req, res, next) {
       return res.status(401).json(resJson);
     }
     // 將registingAccount存入資料庫
+    const result = await pdbCreateUser({
+      id: registingAccount.id,
+      email: registingAccount.email,
+      password: registingAccount.password,
+    });
+    if (!result) {
+      resJson.statusCode = "401";
+      resJson.message = "ERROR";
+      return res.status(401).json(resJson);
+    }
     resJson.data = { id: registingAccount.id, email: registingAccount.email };
     delete req.session.registingAccount;
     res.status(201).json(resJson);
@@ -246,7 +243,7 @@ router.get("/", function (req, res, next) {
     resJson.message = "ERROR";
     return res.status(401).json(resJson);
   }
-  jwt.verify(loginToken, jwtLoginSecret, (err, user) => {
+  jwt.verify(loginToken, jwtLoginSecret, async (err, user) => {
     if (err) {
       resJson.statusCode = "401";
       resJson.message = "ERROR";
@@ -257,13 +254,14 @@ router.get("/", function (req, res, next) {
       resJson.message = "登入已過期";
       return res.status(401).json(resJson);
     }
-    const userData = users.find((u) => u.id === user.id);
+    const userData = await pdbGetUser({ id: user.id });
     if (!userData) {
       resJson.statusCode = "404";
       resJson.message = "ERROR";
       return res.status(404).json(resJson);
     }
-    req.session.userData = { ...userData };
+    const { uid: id, email } = userData;
+    req.session.userData = { id, email };
     resJson.data = { ...userData };
     return res.status(200).json(resJson);
   });
@@ -287,7 +285,7 @@ router.delete("/logout", function (req, res, next) {
 });
 
 // 重設密碼
-router.patch("/reset-password", function (req, res, next) {
+router.patch("/reset-password", async function (req, res, next) {
   // 從req的cookie中取得JWT
   // 解析失敗返回400
   // JWT解析成功，時間過期，返回401
@@ -299,43 +297,31 @@ router.patch("/reset-password", function (req, res, next) {
     meta: {},
     data: {},
   };
-  const loginToken = req.cookies.ult;
-  if (!loginToken) {
+  const { email } = req.body;
+  const userData = await pdbGetUser({ email });
+  if (!userData) {
+    resJson.statusCode = "404";
+    resJson.message = "ERROR";
+    return res.status(404).json(resJson);
+  }
+  const newPassword = Array(8 + 1)
+    .join((Math.random().toString(36) + "00000000000000000").slice(2, 18))
+    .slice(0, 8);
+
+  // 將hashedPassword存入資料庫
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  const result = await pdbUpdateUser({
+    id: userData.uid,
+    password: hashedPassword,
+  });
+  if (!result) {
     resJson.statusCode = "401";
     resJson.message = "ERROR";
     return res.status(401).json(resJson);
   }
-  jwt.verify(loginToken, jwtLoginSecret, async (err, user) => {
-    if (err) {
-      resJson.statusCode = "401";
-      resJson.message = "ERROR";
-      return res.status(401).json(resJson);
-    }
-    if (new Date() > new Date(user.expired)) {
-      resJson.statusCode = "401";
-      resJson.message = "登入已過期";
-      return res.status(401).json(resJson);
-    }
-    const userData = users.find((u) => u.id === user.id);
-    if (!userData) {
-      resJson.statusCode = "404";
-      resJson.message = "ERROR";
-      return res.status(404).json(resJson);
-    }
-    const { email } = req.body;
-    if (email !== user.email) {
-      resJson.statusCode = "401";
-      resJson.message = "ERROR";
-      return res.status(401).json(resJson);
-    }
-    const newPassword = Array(8 + 1)
-      .join((Math.random().toString(36) + "00000000000000000").slice(2, 18))
-      .slice(0, 8);
-    // const hashedPassword = await bcrypt.hash(newPassword, 10);
-    // 將hashedPassword存入資料庫
-    resJson.data = { code: newPassword };
-    return res.status(200).json(resJson);
-  });
+
+  resJson.data = { code: newPassword };
+  return res.status(200).json(resJson);
 });
 
 // 更改密碼
@@ -369,15 +355,24 @@ router.patch("/change-password", function (req, res, next) {
       resJson.message = "登入已過期";
       return res.status(401).json(resJson);
     }
-    const userData = users.find((u) => u.id === user.id);
+    const userData = await pdbGetUser({ id: user.id });
     if (!userData) {
       resJson.statusCode = "404";
       resJson.message = "ERROR";
       return res.status(404).json(resJson);
     }
     const { password: newPassword } = req.body;
-    // const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
     // 將hashedPassword存入資料庫
+    const result = await pdbUpdateUser({
+      id: user.id,
+      password: hashedPassword,
+    });
+    if (!result) {
+      resJson.statusCode = "401";
+      resJson.message = "ERROR";
+      return res.status(401).json(resJson);
+    }
     return res.status(200).json(resJson);
   });
 });

@@ -9,8 +9,10 @@ require("dotenv").config();
 
 var indexRouter = require("./routes/index");
 var userRouter = require("./routes/user");
+var { createUserTable } = require("./db/pdb");
 
 var app = express();
+createUserTable();
 var devMode = app.get("env") === "development";
 var sessionSecret = process.env.SESSION_SECRET;
 
